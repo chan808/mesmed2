@@ -3,6 +3,7 @@ package com.chan.med0515.inspection.dto;
 import com.chan.med0515.inspection.entity.RevisionHistory;
 
 import java.time.LocalDate;
+import java.util.List;
 
 public record RevisionHistoryResponse(
         Long id,
@@ -10,16 +11,18 @@ public record RevisionHistoryResponse(
         int rev,
         LocalDate revisionDate,
         String revisionNote,
-        String confirmedBy
+        String confirmedBy,
+        List<InspectionItemResponse> addedItems
 ) {
-    public static RevisionHistoryResponse from(RevisionHistory r) {
+    public static RevisionHistoryResponse from(RevisionHistory r, List<InspectionItemResponse> addedItems) {
         return new RevisionHistoryResponse(
                 r.getId(),
                 r.getStandard().getId(),
                 r.getRev(),
                 r.getRevisionDate(),
                 r.getRevisionNote(),
-                r.getConfirmedBy()
+                r.getConfirmedBy(),
+                addedItems
         );
     }
 }

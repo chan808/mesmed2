@@ -56,21 +56,6 @@ public class InspectionService {
                 .orElseThrow(() -> new BusinessException(InspectionErrorCode.STANDARD_NOT_FOUND));
     }
 
-    @Transactional
-    public InspectionItemResponse addItem(InspectionItemRequest request) {
-        InspectionStandard standard = standardRepository.findById(request.standardId())
-                .orElseThrow(() -> new BusinessException(InspectionErrorCode.STANDARD_NOT_FOUND));
-        InspectionItem item = InspectionItem.builder()
-                .standard(standard)
-                .itemName(request.itemName())
-                .specification(request.specification())
-                .method(request.method())
-                .equipment(request.equipment())
-                .timing(request.timing())
-                .build();
-        return InspectionItemResponse.from(itemRepository.save(item));
-    }
-
     public List<InspectionItemResponse> findItemsByStandard(Long standardId) {
         return itemRepository.findAllByStandardId(standardId).stream()
                 .map(InspectionItemResponse::from)
@@ -78,17 +63,40 @@ public class InspectionService {
     }
 
     @Transactional
-    public void deleteItem(Long itemId) {
-        InspectionItem item = itemRepository.findById(itemId)
-                .orElseThrow(() -> new BusinessException(InspectionErrorCode.ITEM_NOT_FOUND));
-        item.softDelete();
-    }
-
-    @Transactional
     public RevisionHistoryResponse addRevision(RevisionRequest request) {
         InspectionStandard standard = standardRepository.findById(request.standardId())
                 .orElseThrow(() -> new BusinessException(InspectionErrorCode.STANDARD_NOT_FOUND));
-        standard.incrementRev();
+
+        if (request.deleteItemIds() != null) {
+            request.deleteItemIds().forEach(itemId -> {
+                InspectionItem item = itemRepository.findById(itemId)
+                        .orElseThrow(() -> new BusinessException(InspectionErrorCode.ITEM_NOT_FOUND));
+                item.softDelete();
+            });
+        }
+
+        // 추가 항목 처리
+        List<InspectionItem> addedItems = List.of();
+        if (request.addItems() != null && !request.addItems().isEmpty()) {
+            addedItems = request.addItems().stream()
+                    .map(itemReq -> InspectionItem.builder()
+                            .standard(standard)
+                            .itemName(itemReq.itemName())
+                            .specification(itemReq.specification())
+                            .method(itemReq.method())
+                            .equipment(itemReq.equipment())
+                            .timing(itemReq.timing())
+                            .build())
+                    .map(itemRepository::save)
+                    .toList();
+        }
+
+        // 항목 변경이 있을 때만 rev 증가
+        if ((request.addItems() != null && !request.addItems().isEmpty())
+                || (request.deleteItemIds() != null && !request.deleteItemIds().isEmpty())) {
+            standard.incrementRev();
+        }
+
         RevisionHistory revision = RevisionHistory.builder()
                 .standard(standard)
                 .rev(standard.getRev())
@@ -96,12 +104,17 @@ public class InspectionService {
                 .revisionNote(request.revisionNote())
                 .confirmedBy(request.confirmedBy())
                 .build();
-        return RevisionHistoryResponse.from(revisionRepository.save(revision));
+
+        List<InspectionItemResponse> addedItemResponses = addedItems.stream()
+                .map(InspectionItemResponse::from)
+                .toList();
+
+        return RevisionHistoryResponse.from(revisionRepository.save(revision), addedItemResponses);
     }
 
     public List<RevisionHistoryResponse> findRevisionsByStandard(Long standardId) {
         return revisionRepository.findAllByStandardIdOrderByRevAsc(standardId).stream()
-                .map(RevisionHistoryResponse::from)
+                .map(r -> RevisionHistoryResponse.from(r, List.of()))
                 .toList();
     }
 }

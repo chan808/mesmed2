@@ -37,23 +37,10 @@ public class InspectionController {
         return ResponseEntity.ok(ApiResponse.success(inspectionService.findStandardById(id)));
     }
 
-    @PostMapping("/items")
-    public ResponseEntity<ApiResponse<InspectionItemResponse>> addItem(
-            @Valid @RequestBody InspectionItemRequest request) {
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success(inspectionService.addItem(request)));
-    }
-
     @GetMapping("/items")
     public ResponseEntity<ApiResponse<List<InspectionItemResponse>>> findItemsByStandard(
             @RequestParam Long standardId) {
         return ResponseEntity.ok(ApiResponse.success(inspectionService.findItemsByStandard(standardId)));
-    }
-
-    @DeleteMapping("/items/{id}")
-    public ResponseEntity<Void> deleteItem(@PathVariable Long id) {
-        inspectionService.deleteItem(id);
-        return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/revisions")
