@@ -52,4 +52,10 @@ public class MaterialService {
                 .orElseThrow(() -> new BusinessException(MaterialErrorCode.MATERIAL_NOT_FOUND));
         material.softDelete();
     }
+
+    // 다른 도메인 Service에서만 호출 — Controller에 노출하지 않음
+    public Material getEntityById(Long id) {
+        return materialRepository.findById(id)
+                .orElseThrow(() -> new BusinessException(MaterialErrorCode.MATERIAL_NOT_FOUND));
+    }
 }
