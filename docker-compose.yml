@@ -3,9 +3,9 @@ services:
     image: postgres:16
     container_name: pg-db
     environment:
-      POSTGRES_DB: pg_db
-      POSTGRES_USER: pg_id
-      POSTGRES_PASSWORD: pg_pw
+      POSTGRES_DB: psqldb
+      POSTGRES_USER: psqlid
+      POSTGRES_PASSWORD: psqlpw
     ports:
       - "5432:5432"
     volumes:

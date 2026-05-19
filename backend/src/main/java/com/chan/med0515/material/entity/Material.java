@@ -3,7 +3,6 @@ package com.chan.med0515.material.entity;
 import com.chan.med0515.global.entity.BaseEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.Builder;
@@ -49,7 +48,6 @@ public class Material extends BaseEntity {
         this.supplier = supplier;
         this.materialSpec = materialSpec;
     }
-
 
     public void softDelete() {
         this.deletedAt = LocalDateTime.now();

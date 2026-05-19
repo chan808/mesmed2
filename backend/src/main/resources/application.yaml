@@ -3,9 +3,9 @@ spring:
     name: med0515
 
   datasource:
-    url: jdbc:postgresql://localhost:5432/mes_db
-    username: ${DB_USERNAME:postgres}
-    password: ${DB_PASSWORD:password}
+    url: jdbc:postgresql://localhost:5432/psqldb
+    username: ${DB_USERNAME:psqlid}
+    password: ${DB_PASSWORD:psqlpw}
     driver-class-name: org.postgresql.Driver
 
   jpa:

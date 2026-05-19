@@ -41,7 +41,44 @@ public class InspectionService {
                 .aqlAc(request.aqlAc())
                 .aqlRe(request.aqlRe())
                 .build();
-        return InspectionStandardResponse.from(standardRepository.save(standard));
+        standardRepository.save(standard);
+
+        revisionRepository.save(RevisionHistory.builder()
+                .standard(standard)
+                .rev(0)
+                .revisionDate(request.revisionDate())
+                .revisionNote(request.revisionNote())
+                .confirmedBy(request.confirmedBy())
+                .build());
+
+        return InspectionStandardResponse.from(standard);
+    }
+
+    @Transactional
+    public InspectionStandardResponse updateStandard(Long id, InspectionStandardUpdateRequest request) {
+        InspectionStandard standard = standardRepository.findById(id)
+                .orElseThrow(() -> new BusinessException(InspectionErrorCode.STANDARD_NOT_FOUND));
+
+        standard.updateFields(
+                request.establishedAt(),
+                request.inspectionType(),
+                request.inspectionLevel(),
+                request.strictness(),
+                request.aql(),
+                request.aqlAc(),
+                request.aqlRe()
+        );
+        standard.incrementRev();
+
+        revisionRepository.save(RevisionHistory.builder()
+                .standard(standard)
+                .rev(standard.getRev())
+                .revisionDate(request.revisionDate())
+                .revisionNote(request.revisionNote())
+                .confirmedBy(request.confirmedBy())
+                .build());
+
+        return InspectionStandardResponse.from(standard);
     }
 
     public List<InspectionStandardResponse> findStandardsByMaterial(Long materialId) {

@@ -25,6 +25,7 @@ export function MaterialDetailPage() {
   const [pendingAddItems, setPendingAddItems] = useState<InspectionItemRequest[]>([]);
   const [pendingDeleteIds, setPendingDeleteIds] = useState<number[]>([]);
   const [showRevisionForm, setShowRevisionForm] = useState(false);
+  const [isEditMode, setIsEditMode] = useState(false);
 
   const [selectedStandardId, setSelectedStandardId] = useState<number | null>(null);
 
@@ -73,21 +74,18 @@ export function MaterialDetailPage() {
       setPendingAddItems([]);
       setPendingDeleteIds([]);
       setShowRevisionForm(false);
+      setIsEditMode(false);
     },
   });
 
-  // 항목 추가 버튼: 항목 입력 후 개정 폼으로 이어짐
+  // 항목 추가 의도 (Draft)
   const handleAddItemIntent = (item: InspectionItemRequest) => {
-    setPendingAddItems([item]);
-    setPendingDeleteIds([]);
-    setShowRevisionForm(true);
+    setPendingAddItems([...pendingAddItems, item]);
   };
 
-  // 항목 삭제 버튼: 삭제 대상 확정 후 개정 폼으로 이어짐
+  // 항목 삭제 의도 (Draft)
   const handleDeleteItemIntent = (itemId: number) => {
-    setPendingAddItems([]);
-    setPendingDeleteIds([itemId]);
-    setShowRevisionForm(true);
+    setPendingDeleteIds([...pendingDeleteIds, itemId]);
   };
 
   if (materialLoading || standardsLoading) return <p className="empty">로딩 중…</p>;
@@ -166,7 +164,19 @@ export function MaterialDetailPage() {
         <div className="row" style={{ justifyContent: 'space-between', marginBottom: 8 }}>
           <div className="section-title">검사항목</div>
           {isAdmin && currentStandard && (
-            <AddItemInlineForm onConfirm={handleAddItemIntent} />
+            isEditMode ? (
+              <div className="row" style={{ gap: 8 }}>
+                <AddItemInlineForm onConfirm={handleAddItemIntent} />
+                <button className="primary" onClick={() => setShowRevisionForm(true)}>최종 개정 저장</button>
+                <button onClick={() => {
+                  setIsEditMode(false);
+                  setPendingAddItems([]);
+                  setPendingDeleteIds([]);
+                }}>취소</button>
+              </div>
+            ) : (
+              <button onClick={() => setIsEditMode(true)}>개정 편집 모드</button>
+            )
           )}
         </div>
         <table>
@@ -181,26 +191,62 @@ export function MaterialDetailPage() {
             </tr>
           </thead>
           <tbody>
-            {items && items.length > 0 ? (
-              items.map((item) => (
-                <tr key={item.id}>
-                  <td>{item.itemName}</td>
-                  <td>{item.specification ?? '-'}</td>
-                  <td>{item.method ?? '-'}</td>
-                  <td>{item.equipment ?? '-'}</td>
-                  <td>{item.timing ?? '-'}</td>
-                  {isAdmin && (
-                    <td>
-                      <button
-                        className="small danger"
-                        onClick={() => handleDeleteItemIntent(item.id)}
-                      >
-                        삭제
-                      </button>
-                    </td>
-                  )}
-                </tr>
-              ))
+            {((items && items.length > 0) || pendingAddItems.length > 0) ? (
+              <>
+                {items?.map((item) => {
+                  const isDeleted = pendingDeleteIds.includes(item.id);
+                  return (
+                    <tr key={item.id} style={{ textDecoration: isDeleted ? 'line-through' : 'none', color: isDeleted ? 'red' : 'inherit' }}>
+                      <td>{item.itemName}</td>
+                      <td>{item.specification ?? '-'}</td>
+                      <td>{item.method ?? '-'}</td>
+                      <td>{item.equipment ?? '-'}</td>
+                      <td>{item.timing ?? '-'}</td>
+                      {isAdmin && (
+                        <td>
+                          {isEditMode && !isDeleted && (
+                            <button
+                              className="small danger"
+                              onClick={() => handleDeleteItemIntent(item.id)}
+                            >
+                              삭제
+                            </button>
+                          )}
+                          {isEditMode && isDeleted && (
+                            <button
+                              className="small"
+                              onClick={() => setPendingDeleteIds(pendingDeleteIds.filter(id => id !== item.id))}
+                            >
+                              취소
+                            </button>
+                          )}
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
+                {pendingAddItems.map((item, idx) => (
+                  <tr key={`new-${idx}`} style={{ color: 'green', fontWeight: 'bold' }}>
+                    <td>{item.itemName} (신규)</td>
+                    <td>{item.specification ?? '-'}</td>
+                    <td>{item.method ?? '-'}</td>
+                    <td>{item.equipment ?? '-'}</td>
+                    <td>{item.timing ?? '-'}</td>
+                    {isAdmin && (
+                      <td>
+                        {isEditMode && (
+                          <button
+                            className="small danger"
+                            onClick={() => setPendingAddItems(pendingAddItems.filter((_, i) => i !== idx))}
+                          >
+                            제거
+                          </button>
+                        )}
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </>
             ) : (
               <tr>
                 <td colSpan={isAdmin ? 6 : 5} className="empty">
@@ -254,15 +300,13 @@ export function MaterialDetailPage() {
         />
       )}
 
-      {/* 개정 이력 모달 — 항목 추가/삭제 후 자동으로 열림 */}
+      {/* 개정 이력 모달 — 최종 개정 저장 시 열림 */}
       {showRevisionForm && currentStandard && (
         <RevisionFormModal
           standardId={currentStandard.id}
           pendingAddItems={pendingAddItems}
           pendingDeleteIds={pendingDeleteIds}
           onClose={() => {
-            setPendingAddItems([]);
-            setPendingDeleteIds([]);
             setShowRevisionForm(false);
           }}
           onSubmit={(data: RevisionRequest) => addRevision.mutate(data)}
@@ -296,7 +340,7 @@ function AddItemInlineForm({ onConfirm }: { onConfirm: (item: InspectionItemRequ
       <div className="modal">
         <h2>검사항목 추가</h2>
         <p className="muted" style={{ marginBottom: 12 }}>
-          항목을 입력하면 개정 이력 등록 창이 이어서 열립니다.
+          추가된 항목은 '최종 개정 저장' 시 일괄 반영됩니다.
         </p>
         <form
           onSubmit={(e) => {
@@ -346,7 +390,7 @@ function AddItemInlineForm({ onConfirm }: { onConfirm: (item: InspectionItemRequ
               취소
             </button>
             <button type="submit" className="primary">
-              다음 (개정 이력 입력)
+              임시 추가
             </button>
           </div>
         </form>
@@ -464,6 +508,9 @@ function StandardFormModal({
     aql: 2.5,
     aqlAc: 0,
     aqlRe: 1,
+    revisionDate: new Date().toISOString().split('T')[0],
+    revisionNote: '최초 제정',
+    confirmedBy: '',
   });
 
   return (
@@ -531,6 +578,33 @@ function StandardFormModal({
                 onChange={(e) => setForm({ ...form, aqlRe: Number(e.target.value) })}
               />
             </div>
+          </div>
+          <hr style={{ margin: '16px 0', borderColor: 'var(--border-color)' }} />
+          <div className="field-row">
+            <div className="field">
+              <label>제정(개정)일</label>
+              <input
+                type="date"
+                value={form.revisionDate}
+                onChange={(e) => setForm({ ...form, revisionDate: e.target.value })}
+                required
+              />
+            </div>
+            <div className="field">
+              <label>확인자</label>
+              <input
+                value={form.confirmedBy}
+                onChange={(e) => setForm({ ...form, confirmedBy: e.target.value })}
+              />
+            </div>
+          </div>
+          <div className="field">
+            <label>제정 사유</label>
+            <textarea
+              value={form.revisionNote}
+              onChange={(e) => setForm({ ...form, revisionNote: e.target.value })}
+              required
+            />
           </div>
           <div className="row-end">
             <button type="button" onClick={onClose}>취소</button>

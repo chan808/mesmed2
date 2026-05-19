@@ -114,3 +114,10 @@ global ← inspection → material, user
 
 * 멀티스텝 작업은 계획을 먼저 제시한다.
 * 검증 기준을 정의하고 충족될 때까지 반복한다.
+
+---
+
+## 5. English Correction (학습용 — 나중에 삭제)
+
+* 사용자가 영어로 쓸 때: 치명적 오류만 한 줄 교정. Format: `→ "corrected phrase"`
+* 교정 대상: 잘못된 전치사, 주어 누락, 문법 파괴. 사소한 오류는 무시.

@@ -6,10 +6,7 @@ import jakarta.validation.constraints.NotNull;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 
-public record InspectionStandardRequest(
-
-        @NotNull
-        Long materialId,
+public record InspectionStandardUpdateRequest(
 
         @NotNull
         LocalDate establishedAt,

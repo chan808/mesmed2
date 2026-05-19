@@ -25,6 +25,13 @@ public class InspectionController {
                 .body(ApiResponse.success(inspectionService.registerStandard(request)));
     }
 
+    @PatchMapping("/standards/{id}")
+    public ResponseEntity<ApiResponse<InspectionStandardResponse>> updateStandard(
+            @PathVariable Long id,
+            @Valid @RequestBody InspectionStandardUpdateRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(inspectionService.updateStandard(id, request)));
+    }
+
     @GetMapping("/standards")
     public ResponseEntity<ApiResponse<List<InspectionStandardResponse>>> findStandardsByMaterial(
             @RequestParam Long materialId) {

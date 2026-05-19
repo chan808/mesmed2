@@ -64,8 +64,18 @@ public class InspectionStandard extends BaseEntity {
         this.aqlRe = aqlRe;
     }
 
-    // 개정마다 rev 1씩 증가
     public void incrementRev() {
         this.rev++;
+    }
+
+    public void updateFields(LocalDate establishedAt, String inspectionType, String inspectionLevel,
+                             String strictness, BigDecimal aql, Integer aqlAc, Integer aqlRe) {
+        this.establishedAt = establishedAt;
+        this.inspectionType = inspectionType;
+        this.inspectionLevel = inspectionLevel;
+        this.strictness = strictness;
+        this.aql = aql;
+        this.aqlAc = aqlAc;
+        this.aqlRe = aqlRe;
     }
 }

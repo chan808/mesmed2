@@ -22,6 +22,9 @@ export interface InspectionStandardRequest {
   aql?: number;
   aqlAc?: number;
   aqlRe?: number;
+  revisionDate: string;
+  revisionNote: string;
+  confirmedBy?: string;
 }
 
 export interface InspectionItem {
