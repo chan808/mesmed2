@@ -104,15 +104,22 @@ public class InspectionService {
         InspectionStandard standard = standardRepository.findById(request.standardId())
                 .orElseThrow(() -> new BusinessException(InspectionErrorCode.STANDARD_NOT_FOUND));
 
+        boolean hasItemChanges = (request.addItems() != null && !request.addItems().isEmpty())
+                || (request.deleteItemIds() != null && !request.deleteItemIds().isEmpty());
+
+        // 항목 변경 시 rev를 먼저 올려야 추가/삭제 항목에 새 rev를 기록할 수 있음
+        if (hasItemChanges) {
+            standard.incrementRev();
+        }
+
         if (request.deleteItemIds() != null) {
             request.deleteItemIds().forEach(itemId -> {
                 InspectionItem item = itemRepository.findById(itemId)
                         .orElseThrow(() -> new BusinessException(InspectionErrorCode.ITEM_NOT_FOUND));
-                item.softDelete();
+                item.softDelete(standard.getRev());
             });
         }
 
-        // 추가 항목 처리
         List<InspectionItem> addedItems = List.of();
         if (request.addItems() != null && !request.addItems().isEmpty()) {
             addedItems = request.addItems().stream()
@@ -123,15 +130,10 @@ public class InspectionService {
                             .method(itemReq.method())
                             .equipment(itemReq.equipment())
                             .timing(itemReq.timing())
+                            .addedAtRev(standard.getRev())
                             .build())
                     .map(itemRepository::save)
                     .toList();
-        }
-
-        // 항목 변경이 있을 때만 rev 증가
-        if ((request.addItems() != null && !request.addItems().isEmpty())
-                || (request.deleteItemIds() != null && !request.deleteItemIds().isEmpty())) {
-            standard.incrementRev();
         }
 
         RevisionHistory revision = RevisionHistory.builder()
@@ -153,5 +155,19 @@ public class InspectionService {
         return revisionRepository.findAllByStandardIdOrderByRevAsc(standardId).stream()
                 .map(r -> RevisionHistoryResponse.from(r, List.of()))
                 .toList();
+    }
+
+    public InspectionSnapshotResponse getSnapshotByRev(Long standardId, int rev) {
+        standardRepository.findById(standardId)
+                .orElseThrow(() -> new BusinessException(InspectionErrorCode.STANDARD_NOT_FOUND));
+
+        RevisionHistory revision = revisionRepository.findByStandardIdAndRev(standardId, rev)
+                .orElseThrow(() -> new BusinessException(InspectionErrorCode.REVISION_NOT_FOUND));
+
+        List<InspectionItemResponse> items = itemRepository.findSnapshotItems(standardId, rev).stream()
+                .map(InspectionItemResponse::from)
+                .toList();
+
+        return InspectionSnapshotResponse.from(revision, items);
     }
 }

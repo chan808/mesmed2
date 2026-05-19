@@ -62,4 +62,11 @@ public class InspectionController {
             @RequestParam Long standardId) {
         return ResponseEntity.ok(ApiResponse.success(inspectionService.findRevisionsByStandard(standardId)));
     }
+
+    @GetMapping("/standards/{id}/snapshot")
+    public ResponseEntity<ApiResponse<InspectionSnapshotResponse>> getSnapshotByRev(
+            @PathVariable Long id,
+            @RequestParam int rev) {
+        return ResponseEntity.ok(ApiResponse.success(inspectionService.getSnapshotByRev(id, rev)));
+    }
 }

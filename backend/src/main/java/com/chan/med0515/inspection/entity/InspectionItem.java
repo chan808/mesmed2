@@ -9,13 +9,11 @@ import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLRestriction;
 import org.springframework.util.Assert;
 
-import java.time.LocalDateTime;
-
 @Entity
 @Table(name = "inspection_item")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-@SQLRestriction("deleted_at is null")
+@SQLRestriction("deleted_at_rev is null")
 public class InspectionItem extends BaseEntity {
 
     @ManyToOne(fetch = FetchType.LAZY)
@@ -37,12 +35,15 @@ public class InspectionItem extends BaseEntity {
     @Column(length = 20)
     private String timing;
 
-    @Column(name = "deleted_at")
-    private LocalDateTime deletedAt;
+    @Column(nullable = false)
+    private int addedAtRev;
+
+    @Column
+    private Integer deletedAtRev;
 
     @Builder
     public InspectionItem(InspectionStandard standard, String itemName, String specification,
-                          String method, String equipment, String timing) {
+                          String method, String equipment, String timing, int addedAtRev) {
         Assert.notNull(standard, "기준서는 필수입니다");
         Assert.hasText(itemName, "검사항목은 필수입니다");
         this.standard = standard;
@@ -51,9 +52,10 @@ public class InspectionItem extends BaseEntity {
         this.method = method;
         this.equipment = equipment;
         this.timing = timing;
+        this.addedAtRev = addedAtRev;
     }
 
-    public void softDelete() {
-        this.deletedAt = LocalDateTime.now();
+    public void softDelete(int rev) {
+        this.deletedAtRev = rev;
     }
 }
