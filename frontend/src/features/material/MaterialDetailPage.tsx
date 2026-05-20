@@ -4,8 +4,10 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { materialApi } from './api';
 import { inspectionApi } from '../inspection/api';
 import { useAuth } from '../../shared/auth/useAuth';
+import { errorMessage } from '../../shared/api/client';
 import type {
   InspectionStandardRequest,
+  InspectionStandardUpdateRequest,
   InspectionItemRequest,
   RevisionRequest,
   InspectionItem,
@@ -20,14 +22,15 @@ export function MaterialDetailPage() {
   const isAdmin = role === 'ADMIN';
 
   const [showStandardForm, setShowStandardForm] = useState(false);
+  const [showStandardUpdateForm, setShowStandardUpdateForm] = useState(false);
 
-  // 개정 모달에 넘길 초기 항목 변경 정보 (항목 추가 버튼 → 모달 오픈 시 사용)
   const [pendingAddItems, setPendingAddItems] = useState<InspectionItemRequest[]>([]);
   const [pendingDeleteIds, setPendingDeleteIds] = useState<number[]>([]);
   const [showRevisionForm, setShowRevisionForm] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
 
-  const [selectedStandardId, setSelectedStandardId] = useState<number | null>(null);
+  // null = 최신 rev 보기, 숫자 = 과거 스냅샷 보기
+  const [selectedRev, setSelectedRev] = useState<number | null>(null);
 
   const { data: material, isLoading: materialLoading } = useQuery({
     queryKey: ['materials', materialId],
@@ -41,15 +44,10 @@ export function MaterialDetailPage() {
     enabled: !Number.isNaN(materialId),
   });
 
-  const currentStandard = standards?.find(
-    (s) => s.id === (selectedStandardId ?? (standards.length > 0 ? standards[standards.length - 1].id : null))
-  );
-
-  const { data: items } = useQuery({
-    queryKey: ['standards', currentStandard?.id, 'items'],
-    queryFn: () => inspectionApi.listItems(currentStandard!.id),
-    enabled: !!currentStandard,
-  });
+  // 원자재당 기준서는 하나 — 마지막(최신) 기준서를 사용
+  const currentStandard = standards && standards.length > 0
+    ? standards[standards.length - 1]
+    : undefined;
 
   const { data: revisions } = useQuery({
     queryKey: ['standards', currentStandard?.id, 'revisions'],
@@ -57,11 +55,43 @@ export function MaterialDetailPage() {
     enabled: !!currentStandard,
   });
 
+  const latestRev = revisions && revisions.length > 0
+    ? revisions[revisions.length - 1].rev
+    : null;
+
+  // null이면 최신, 숫자이면 과거 스냅샷
+  const isViewingLatest = selectedRev === null;
+
+  const { data: latestItems } = useQuery({
+    queryKey: ['standards', currentStandard?.id, 'items'],
+    queryFn: () => inspectionApi.listItems(currentStandard!.id),
+    enabled: !!currentStandard && isViewingLatest,
+  });
+
+  const { data: snapshot } = useQuery({
+    queryKey: ['standards', currentStandard?.id, 'snapshot', selectedRev],
+    queryFn: () => inspectionApi.getSnapshot(currentStandard!.id, selectedRev!),
+    enabled: !!currentStandard && !isViewingLatest && selectedRev !== null,
+  });
+
+  const displayItems = isViewingLatest ? latestItems : snapshot?.items;
+
   const createStandard = useMutation({
     mutationFn: inspectionApi.createStandard,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['materials', materialId, 'standards'] });
+      setSelectedRev(null);
       setShowStandardForm(false);
+    },
+  });
+
+  const updateStandard = useMutation({
+    mutationFn: inspectionApi.updateStandard,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['materials', materialId, 'standards'] });
+      queryClient.invalidateQueries({ queryKey: ['standards', currentStandard?.id, 'revisions'] });
+      setSelectedRev(null);
+      setShowStandardUpdateForm(false);
     },
   });
 
@@ -75,15 +105,14 @@ export function MaterialDetailPage() {
       setPendingDeleteIds([]);
       setShowRevisionForm(false);
       setIsEditMode(false);
+      setSelectedRev(null);
     },
   });
 
-  // 항목 추가 의도 (Draft)
   const handleAddItemIntent = (item: InspectionItemRequest) => {
     setPendingAddItems([...pendingAddItems, item]);
   };
 
-  // 항목 삭제 의도 (Draft)
   const handleDeleteItemIntent = (itemId: number) => {
     setPendingDeleteIds([...pendingDeleteIds, itemId]);
   };
@@ -91,31 +120,61 @@ export function MaterialDetailPage() {
   if (materialLoading || standardsLoading) return <p className="empty">로딩 중…</p>;
   if (!material) return <p className="empty">자재를 찾을 수 없습니다.</p>;
 
+  const hasStandard = standards && standards.length > 0;
+
   return (
     <div className="inspection-standard-view">
       <div className="content-header">
         <h1>검사기준 관리</h1>
         <div className="row" style={{ gap: 8 }}>
-          {standards && standards.length > 0 && (
+          {/* 개정 이력 기반 버전 선택 드롭다운 */}
+          {hasStandard && revisions && revisions.length > 0 && (
             <select
-              value={currentStandard?.id}
-              onChange={(e) => setSelectedStandardId(Number(e.target.value))}
+              value={selectedRev ?? latestRev ?? 0}
+              onChange={(e) => {
+                const rev = Number(e.target.value);
+                setSelectedRev(rev === latestRev ? null : rev);
+                setIsEditMode(false);
+                setPendingAddItems([]);
+                setPendingDeleteIds([]);
+              }}
             >
-              {standards.map((s) => (
-                <option key={s.id} value={s.id}>
-                  Rev.{s.rev} ({s.establishedAt})
+              {[...revisions].reverse().map((r) => (
+                <option key={r.rev} value={r.rev}>
+                  Rev.{r.rev} ({r.revisionDate}){r.rev === latestRev ? ' ★최신' : ''}
                 </option>
               ))}
             </select>
           )}
-          {isAdmin && (
+          {/* 기준서가 없을 때만 제정, 있고 최신 rev 볼 때는 개정 */}
+          {isAdmin && !hasStandard && (
             <button className="primary" onClick={() => setShowStandardForm(true)}>
               기준서 제정
+            </button>
+          )}
+          {isAdmin && hasStandard && isViewingLatest && (
+            <button className="primary" onClick={() => setShowStandardUpdateForm(true)}>
+              기준서 개정
             </button>
           )}
           <button onClick={() => navigate('/materials')}>목록으로</button>
         </div>
       </div>
+
+      {/* 과거 버전 조회 중 알림 */}
+      {!isViewingLatest && (
+        <div className="info-banner" style={{
+          background: 'var(--warning-bg, #fff7e6)',
+          border: '1px solid var(--warning-border, #ffc069)',
+          borderRadius: 6,
+          padding: '8px 12px',
+          marginBottom: 12,
+          fontSize: 13,
+          color: '#7c5200',
+        }}>
+          Rev.{selectedRev} 스냅샷 보기 중 — 읽기 전용입니다.
+        </div>
+      )}
 
       {/* 1. 기준서 헤더 */}
       <div className="section standard-header">
@@ -163,7 +222,8 @@ export function MaterialDetailPage() {
       <div className="section">
         <div className="row" style={{ justifyContent: 'space-between', marginBottom: 8 }}>
           <div className="section-title">검사항목</div>
-          {isAdmin && currentStandard && (
+          {/* 편집 모드는 최신 rev 볼 때만 */}
+          {isAdmin && currentStandard && isViewingLatest && (
             isEditMode ? (
               <div className="row" style={{ gap: 8 }}>
                 <AddItemInlineForm onConfirm={handleAddItemIntent} />
@@ -187,13 +247,13 @@ export function MaterialDetailPage() {
               <th>검사 방법</th>
               <th>측정기기</th>
               <th>주기</th>
-              {isAdmin && <th style={{ width: 60 }} />}
+              {isAdmin && isViewingLatest && <th style={{ width: 60 }} />}
             </tr>
           </thead>
           <tbody>
-            {((items && items.length > 0) || pendingAddItems.length > 0) ? (
+            {((displayItems && displayItems.length > 0) || pendingAddItems.length > 0) ? (
               <>
-                {items?.map((item) => {
+                {displayItems?.map((item) => {
                   const isDeleted = pendingDeleteIds.includes(item.id);
                   return (
                     <tr key={item.id} style={{ textDecoration: isDeleted ? 'line-through' : 'none', color: isDeleted ? 'red' : 'inherit' }}>
@@ -202,7 +262,7 @@ export function MaterialDetailPage() {
                       <td>{item.method ?? '-'}</td>
                       <td>{item.equipment ?? '-'}</td>
                       <td>{item.timing ?? '-'}</td>
-                      {isAdmin && (
+                      {isAdmin && isViewingLatest && (
                         <td>
                           {isEditMode && !isDeleted && (
                             <button
@@ -225,14 +285,14 @@ export function MaterialDetailPage() {
                     </tr>
                   );
                 })}
-                {pendingAddItems.map((item, idx) => (
+                {isViewingLatest && pendingAddItems.map((item, idx) => (
                   <tr key={`new-${idx}`} style={{ color: 'green', fontWeight: 'bold' }}>
                     <td>{item.itemName} (신규)</td>
                     <td>{item.specification ?? '-'}</td>
                     <td>{item.method ?? '-'}</td>
                     <td>{item.equipment ?? '-'}</td>
                     <td>{item.timing ?? '-'}</td>
-                    {isAdmin && (
+                    {isAdmin && isViewingLatest && (
                       <td>
                         {isEditMode && (
                           <button
@@ -249,7 +309,7 @@ export function MaterialDetailPage() {
               </>
             ) : (
               <tr>
-                <td colSpan={isAdmin ? 6 : 5} className="empty">
+                <td colSpan={(isAdmin && isViewingLatest) ? 6 : 5} className="empty">
                   등록된 검사항목이 없습니다.
                 </td>
               </tr>
@@ -273,7 +333,20 @@ export function MaterialDetailPage() {
           <tbody>
             {revisions && revisions.length > 0 ? (
               revisions.map((rev) => (
-                <tr key={rev.id}>
+                <tr
+                  key={rev.id}
+                  style={{
+                    cursor: 'pointer',
+                    background: selectedRev === rev.rev ? 'var(--row-hover, #f0f7ff)' : undefined,
+                    fontWeight: rev.rev === latestRev && isViewingLatest ? 'bold' : undefined,
+                  }}
+                  onClick={() => {
+                    setSelectedRev(rev.rev === latestRev ? null : rev.rev);
+                    setIsEditMode(false);
+                    setPendingAddItems([]);
+                    setPendingDeleteIds([]);
+                  }}
+                >
                   <td className="num">{rev.rev}</td>
                   <td>{rev.revisionDate}</td>
                   <td>{rev.revisionNote}</td>
@@ -297,26 +370,40 @@ export function MaterialDetailPage() {
           materialId={materialId}
           onClose={() => setShowStandardForm(false)}
           onSubmit={(data: InspectionStandardRequest) => createStandard.mutate(data)}
+          isLoading={createStandard.isPending}
+          error={createStandard.isError ? errorMessage(createStandard.error) : undefined}
         />
       )}
 
-      {/* 개정 이력 모달 — 최종 개정 저장 시 열림 */}
+      {/* 기준서 헤더 개정 모달 */}
+      {showStandardUpdateForm && currentStandard && (
+        <StandardUpdateFormModal
+          standard={currentStandard}
+          onClose={() => setShowStandardUpdateForm(false)}
+          onSubmit={(body: InspectionStandardUpdateRequest) =>
+            updateStandard.mutate({ id: currentStandard.id, body })
+          }
+          isLoading={updateStandard.isPending}
+          error={updateStandard.isError ? errorMessage(updateStandard.error) : undefined}
+        />
+      )}
+
+      {/* 개정 이력 모달 */}
       {showRevisionForm && currentStandard && (
         <RevisionFormModal
           standardId={currentStandard.id}
           pendingAddItems={pendingAddItems}
           pendingDeleteIds={pendingDeleteIds}
-          onClose={() => {
-            setShowRevisionForm(false);
-          }}
+          onClose={() => setShowRevisionForm(false)}
           onSubmit={(data: RevisionRequest) => addRevision.mutate(data)}
+          isLoading={addRevision.isPending}
+          error={addRevision.isError ? errorMessage(addRevision.error) : undefined}
         />
       )}
     </div>
   );
 }
 
-// 항목 추가 인라인 폼 — "추가" 클릭 시 항목 입력, 확인하면 개정 모달로 넘어감
 function AddItemInlineForm({ onConfirm }: { onConfirm: (item: InspectionItemRequest) => void }) {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<InspectionItemRequest>({
@@ -399,19 +486,22 @@ function AddItemInlineForm({ onConfirm }: { onConfirm: (item: InspectionItemRequ
   );
 }
 
-// 개정 이력 모달 — 항목 변경 내역을 미리 보여주고 개정일/내용/확인자 입력
 function RevisionFormModal({
   standardId,
   pendingAddItems,
   pendingDeleteIds,
   onClose,
   onSubmit,
+  isLoading,
+  error,
 }: {
   standardId: number;
   pendingAddItems: InspectionItemRequest[];
   pendingDeleteIds: number[];
   onClose: () => void;
   onSubmit: (data: RevisionRequest) => void;
+  isLoading?: boolean;
+  error?: string;
 }) {
   const [form, setForm] = useState({
     revisionDate: new Date().toISOString().split('T')[0],
@@ -426,7 +516,6 @@ function RevisionFormModal({
       <div className="modal">
         <h2>개정 이력 등록</h2>
 
-        {/* 변경 내역 요약 */}
         {hasChanges && (
           <div className="revision-summary">
             {pendingAddItems.length > 0 && (
@@ -475,12 +564,13 @@ function RevisionFormModal({
               onChange={(e) => setForm({ ...form, confirmedBy: e.target.value })}
             />
           </div>
+          {error && <div className="error">{error}</div>}
           <div className="row-end">
-            <button type="button" onClick={onClose}>
+            <button type="button" onClick={onClose} disabled={isLoading}>
               취소
             </button>
-            <button type="submit" className="primary">
-              저장
+            <button type="submit" className="primary" disabled={isLoading}>
+              {isLoading ? '저장 중…' : '저장'}
             </button>
           </div>
         </form>
@@ -489,15 +579,18 @@ function RevisionFormModal({
   );
 }
 
-// 기준서 제정 모달
 function StandardFormModal({
   materialId,
   onClose,
   onSubmit,
+  isLoading,
+  error,
 }: {
   materialId: number;
   onClose: () => void;
   onSubmit: (data: InspectionStandardRequest) => void;
+  isLoading?: boolean;
+  error?: string;
 }) {
   const [form, setForm] = useState<InspectionStandardRequest>({
     materialId,
@@ -606,9 +699,145 @@ function StandardFormModal({
               required
             />
           </div>
+          {error && <div className="error">{error}</div>}
           <div className="row-end">
-            <button type="button" onClick={onClose}>취소</button>
-            <button type="submit" className="primary">제정</button>
+            <button type="button" onClick={onClose} disabled={isLoading}>취소</button>
+            <button type="submit" className="primary" disabled={isLoading}>
+              {isLoading ? '제정 중…' : '제정'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// 기준서 개정 모달 — 기존 헤더 값 pre-fill, updateStandard 호출
+function StandardUpdateFormModal({
+  standard,
+  onClose,
+  onSubmit,
+  isLoading,
+  error,
+}: {
+  standard: import('../inspection/types').InspectionStandard;
+  onClose: () => void;
+  onSubmit: (data: InspectionStandardUpdateRequest) => void;
+  isLoading?: boolean;
+  error?: string;
+}) {
+  const [form, setForm] = useState<InspectionStandardUpdateRequest>({
+    establishedAt: standard.establishedAt,
+    inspectionType: standard.inspectionType ?? '',
+    inspectionLevel: standard.inspectionLevel ?? '',
+    strictness: standard.strictness ?? '',
+    aql: standard.aql ?? undefined,
+    aqlAc: standard.aqlAc ?? undefined,
+    aqlRe: standard.aqlRe ?? undefined,
+    revisionDate: new Date().toISOString().split('T')[0],
+    revisionNote: '',
+    confirmedBy: '',
+  });
+
+  return (
+    <div className="modal-backdrop">
+      <div className="modal">
+        <h2>검사기준서 개정</h2>
+        <form onSubmit={(e) => { e.preventDefault(); onSubmit(form); }}>
+          <div className="field">
+            <label>제정일</label>
+            <input
+              type="date"
+              value={form.establishedAt}
+              onChange={(e) => setForm({ ...form, establishedAt: e.target.value })}
+              required
+            />
+          </div>
+          <div className="field-row">
+            <div className="field">
+              <label>검사 방식</label>
+              <input
+                value={form.inspectionType}
+                onChange={(e) => setForm({ ...form, inspectionType: e.target.value })}
+              />
+            </div>
+            <div className="field">
+              <label>검사 수준</label>
+              <input
+                value={form.inspectionLevel}
+                onChange={(e) => setForm({ ...form, inspectionLevel: e.target.value })}
+              />
+            </div>
+          </div>
+          <div className="field-row">
+            <div className="field">
+              <label>엄격도</label>
+              <input
+                value={form.strictness}
+                onChange={(e) => setForm({ ...form, strictness: e.target.value })}
+              />
+            </div>
+            <div className="field">
+              <label>AQL</label>
+              <input
+                type="number"
+                step="0.1"
+                value={form.aql ?? ''}
+                onChange={(e) => setForm({ ...form, aql: e.target.value ? Number(e.target.value) : undefined })}
+              />
+            </div>
+          </div>
+          <div className="field-row">
+            <div className="field">
+              <label>Ac (합격수)</label>
+              <input
+                type="number"
+                value={form.aqlAc ?? ''}
+                onChange={(e) => setForm({ ...form, aqlAc: e.target.value ? Number(e.target.value) : undefined })}
+              />
+            </div>
+            <div className="field">
+              <label>Re (불합격수)</label>
+              <input
+                type="number"
+                value={form.aqlRe ?? ''}
+                onChange={(e) => setForm({ ...form, aqlRe: e.target.value ? Number(e.target.value) : undefined })}
+              />
+            </div>
+          </div>
+          <hr style={{ margin: '16px 0', borderColor: 'var(--border-color)' }} />
+          <div className="field-row">
+            <div className="field">
+              <label>개정일</label>
+              <input
+                type="date"
+                value={form.revisionDate}
+                onChange={(e) => setForm({ ...form, revisionDate: e.target.value })}
+                required
+              />
+            </div>
+            <div className="field">
+              <label>확인자</label>
+              <input
+                value={form.confirmedBy}
+                onChange={(e) => setForm({ ...form, confirmedBy: e.target.value })}
+              />
+            </div>
+          </div>
+          <div className="field">
+            <label>개정 사유</label>
+            <textarea
+              value={form.revisionNote}
+              onChange={(e) => setForm({ ...form, revisionNote: e.target.value })}
+              required
+            />
+          </div>
+          {error && <div className="error">{error}</div>}
+          <div className="row-end">
+            <button type="button" onClick={onClose} disabled={isLoading}>취소</button>
+            <button type="submit" className="primary" disabled={isLoading}>
+              {isLoading ? '개정 중…' : '개정'}
+            </button>
           </div>
         </form>
       </div>

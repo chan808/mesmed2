@@ -27,6 +27,19 @@ export interface InspectionStandardRequest {
   confirmedBy?: string;
 }
 
+export interface InspectionStandardUpdateRequest {
+  establishedAt: string;
+  inspectionType?: string;
+  inspectionLevel?: string;
+  strictness?: string;
+  aql?: number;
+  aqlAc?: number;
+  aqlRe?: number;
+  revisionDate: string;
+  revisionNote: string;
+  confirmedBy?: string;
+}
+
 export interface InspectionItem {
   id: number;
   standardId: number;
@@ -53,6 +66,15 @@ export interface RevisionHistory {
   revisionNote: string;
   confirmedBy: string | null;
   addedItems: InspectionItem[];
+}
+
+export interface InspectionSnapshotResponse {
+  standardId: number;
+  rev: number;
+  revisionDate: string;
+  revisionNote: string;
+  confirmedBy: string | null;
+  items: InspectionItem[];
 }
 
 export interface RevisionRequest {

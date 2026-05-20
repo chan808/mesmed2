@@ -21,9 +21,6 @@ public class MaterialService {
 
     @Transactional
     public MaterialResponse register(MaterialRequest request) {
-        if (request.partCode() != null && materialRepository.existsByPartCode(request.partCode())) {
-            throw new BusinessException(MaterialErrorCode.DUPLICATE_PART_CODE);
-        }
         Material material = Material.builder()
                 .modelName(request.modelName())
                 .partName(request.partName())
